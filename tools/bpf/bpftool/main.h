@@ -243,6 +243,23 @@ int print_all_levels(__maybe_unused enum libbpf_print_level level,
 size_t hash_fn_for_key_as_id(const void *key, void *ctx);
 bool equal_fn_for_key_as_id(const void *k1, const void *k2, void *ctx);
 
+/**
+ * bpf_attach_type_input_str - convert the provided attach type value into a
+ * textual representation that we accept for input purposes.
+ *
+ * This function acts is similar in nature to libbpf_bpf_attach_type_str, but
+ * only recognizes some of attach type names that have been used by the program
+ * in the past and which do not follow the string inference scheme that libbpf
+ * uses.
+ * These textual representations should only be used for user input.
+ *
+ * @t: The attach type
+ * Returns a pointer to a static string identifying the attach type. NULL is
+ * returned for unknown bpf_attach_type values or those whose representation
+ * does not differ from that in libbpf itself.
+ */
+const char *bpf_attach_type_input_str(enum bpf_attach_type t);
+
 static inline void *u32_as_hash_field(__u32 x)
 {
 	return (void *)(uintptr_t)x;
