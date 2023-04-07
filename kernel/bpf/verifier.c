@@ -17720,7 +17720,7 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr)
 	env->allow_uninit_stack = bpf_allow_uninit_stack();
 	env->bypass_spec_v1 = bpf_bypass_spec_v1();
 	env->bypass_spec_v4 = bpf_bypass_spec_v4();
-	env->bpf_capable = bpf_capable();
+	env->bpf_capable = is_priv;
 	env->rcu_tag_supported = btf_vmlinux &&
 		btf_find_by_name_kind(btf_vmlinux, "rcu", BTF_KIND_TYPE_TAG) > 0;
 
