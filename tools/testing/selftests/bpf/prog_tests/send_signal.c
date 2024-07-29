@@ -40,7 +40,7 @@ static void test_send_signal_common(struct perf_event_attr *attr,
 
 	if (pid == 0) {
 		int old_prio;
-		volatile int j = 0;
+		volatile __u64 j = 0;
 
 		/* install signal handler and notify parent */
 		ASSERT_NEQ(signal(SIGUSR1, sigusr1_handler), SIG_ERR, "signal");
@@ -64,14 +64,14 @@ static void test_send_signal_common(struct perf_event_attr *attr,
 		ASSERT_EQ(read(pipe_p2c[0], buf, 1), 1, "pipe_read");
 
 		/* wait a little for signal handler */
-		for (int i = 0; i < 1000000000 && !sigusr1_received; i++) {
+		for (__u64 i = 0; i < 10000000000ULL && !sigusr1_received; i++) {
 			j /= i + j + 1;
 			if (!attr)
 				/* trigger the nanosleep tracepoint program. */
 				usleep(1);
 		}
 
-		buf[0] = sigusr1_received ? '2' : '0';
+		buf[0] = sigusr1_received ? '2' : '1';
 		ASSERT_EQ(sigusr1_received, 1, "sigusr1_received");
 		ASSERT_EQ(write(pipe_c2p[1], buf, 1), 1, "pipe_write");
 
@@ -133,6 +133,7 @@ static void test_send_signal_common(struct perf_event_attr *attr,
 		goto disable_pmu;
 	}
 
+	ASSERT_EQ(skel->bss->status, 1, "status");
 	ASSERT_EQ(buf[0], '2', "incorrect result");
 
 	/* notify child safe to exit */
@@ -168,11 +169,13 @@ static void test_send_signal_perf(bool signal_thread)
 static void test_send_signal_nmi(bool signal_thread)
 {
 	struct perf_event_attr attr = {
-		.sample_period = 1,
+		.freq = 1,
+		.sample_freq = 1000,
+		/* .sample_period = 1, */
 		.type = PERF_TYPE_HARDWARE,
 		.config = PERF_COUNT_HW_CPU_CYCLES,
 	};
-	int pmu_fd;
+	int pmu_fd, err;
 
 	/* Some setups (e.g. virtual machines) might run with hardware
 	 * perf events disabled. If this is the case, skip this test.
@@ -180,7 +183,9 @@ static void test_send_signal_nmi(bool signal_thread)
 	pmu_fd = syscall(__NR_perf_event_open, &attr, 0 /* pid */,
 			 -1 /* cpu */, -1 /* group_fd */, 0 /* flags */);
 	if (pmu_fd == -1) {
-		if (errno == ENOENT || errno == EOPNOTSUPP) {
+		err = errno;
+		ASSERT_EQ(err, 0, "errno");
+		if (err == ENOENT || err == EOPNOTSUPP) {
 			printf("%s:SKIP:no PERF_COUNT_HW_CPU_CYCLES\n",
 			       __func__);
 			test__skip();
