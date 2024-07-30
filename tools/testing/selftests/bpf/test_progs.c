@@ -1690,6 +1690,28 @@ int main(int argc, char **argv)
 	if (err)
 		return err;
 
+	/* hack "-n 282/3" */
+	{
+		char arg[] = "282/3";
+		char *subtest_str = strchr(arg, '/');
+
+		if (subtest_str) {
+			*subtest_str = '\0';
+			if (parse_num_list(subtest_str + 1,
+					   &env.subtest_selector.num_set,
+					   &env.subtest_selector.num_set_len)) {
+				fprintf(stderr,
+					"Failed to parse subtest numbers.\n");
+				return -EINVAL;
+			}
+		}
+		if (parse_num_list(arg, &env.test_selector.num_set,
+				   &env.test_selector.num_set_len)) {
+			fprintf(stderr, "Failed to parse test numbers.\n");
+			return -EINVAL;
+		}
+	}
+
 	err = cd_flavor_subdir(argv[0]);
 	if (err)
 		return err;

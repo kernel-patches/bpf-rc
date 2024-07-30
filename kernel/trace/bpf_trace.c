@@ -883,6 +883,7 @@ static int bpf_send_signal_common(u32 sig, enum pid_type type)
 
 BPF_CALL_1(bpf_send_signal, u32, sig)
 {
+	dump_stack();
 	return bpf_send_signal_common(sig, PIDTYPE_TGID);
 }
 
@@ -895,6 +896,7 @@ static const struct bpf_func_proto bpf_send_signal_proto = {
 
 BPF_CALL_1(bpf_send_signal_thread, u32, sig)
 {
+	dump_stack();
 	return bpf_send_signal_common(sig, PIDTYPE_PID);
 }
 

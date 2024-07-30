@@ -155,7 +155,7 @@ static int cpu_function_call(int cpu, remote_function_f func, void *info)
 	return data.ret;
 }
 
-static void perf_ctx_lock(struct perf_cpu_context *cpuctx,
+static noinline void perf_ctx_lock(struct perf_cpu_context *cpuctx,
 			  struct perf_event_context *ctx)
 {
 	raw_spin_lock(&cpuctx->ctx.lock);
@@ -163,7 +163,7 @@ static void perf_ctx_lock(struct perf_cpu_context *cpuctx,
 		raw_spin_lock(&ctx->lock);
 }
 
-static void perf_ctx_unlock(struct perf_cpu_context *cpuctx,
+static noinline void perf_ctx_unlock(struct perf_cpu_context *cpuctx,
 			    struct perf_event_context *ctx)
 {
 	if (ctx)
@@ -685,7 +685,7 @@ do {									\
 	___p;								\
 })
 
-static void perf_ctx_disable(struct perf_event_context *ctx, bool cgroup)
+static noinline void perf_ctx_disable(struct perf_event_context *ctx, bool cgroup)
 {
 	struct perf_event_pmu_context *pmu_ctx;
 
@@ -696,7 +696,7 @@ static void perf_ctx_disable(struct perf_event_context *ctx, bool cgroup)
 	}
 }
 
-static void perf_ctx_enable(struct perf_event_context *ctx, bool cgroup)
+static noinline void perf_ctx_enable(struct perf_event_context *ctx, bool cgroup)
 {
 	struct perf_event_pmu_context *pmu_ctx;
 
@@ -1147,7 +1147,7 @@ void perf_pmu_disable(struct pmu *pmu)
 		pmu->pmu_disable(pmu);
 }
 
-void perf_pmu_enable(struct pmu *pmu)
+void noinline perf_pmu_enable(struct pmu *pmu)
 {
 	int *count = this_cpu_ptr(pmu->pmu_disable_count);
 	if (!--(*count))
@@ -2657,7 +2657,7 @@ static void task_ctx_sched_out(struct perf_event_context *ctx,
 	ctx_sched_out(ctx, event_type);
 }
 
-static void perf_event_sched_in(struct perf_cpu_context *cpuctx,
+static noinline void perf_event_sched_in(struct perf_cpu_context *cpuctx,
 				struct perf_event_context *ctx)
 {
 	ctx_sched_in(&cpuctx->ctx, EVENT_PINNED);
@@ -3223,7 +3223,7 @@ out:
 	return err;
 }
 
-static void __pmu_ctx_sched_out(struct perf_event_pmu_context *pmu_ctx,
+static noinline void __pmu_ctx_sched_out(struct perf_event_pmu_context *pmu_ctx,
 				enum event_type_t event_type)
 {
 	struct perf_event_context *ctx = pmu_ctx->ctx;
@@ -3264,7 +3264,7 @@ static void __pmu_ctx_sched_out(struct perf_event_pmu_context *pmu_ctx,
 	perf_pmu_enable(pmu);
 }
 
-static void
+static noinline void
 ctx_sched_out(struct perf_event_context *ctx, enum event_type_t event_type)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
@@ -3464,7 +3464,7 @@ static void perf_event_swap_task_ctx_data(struct perf_event_context *prev_ctx,
 	}
 }
 
-static void perf_ctx_sched_task_cb(struct perf_event_context *ctx, bool sched_in)
+static noinline void perf_ctx_sched_task_cb(struct perf_event_context *ctx, bool sched_in)
 {
 	struct perf_event_pmu_context *pmu_ctx;
 	struct perf_cpu_pmu_context *cpc;
@@ -3603,7 +3603,7 @@ void perf_sched_cb_inc(struct pmu *pmu)
  * PEBS requires this to provide PID/TID information. This requires we flush
  * all queued PEBS records before we context switch to a new task.
  */
-static void __perf_pmu_sched_task(struct perf_cpu_pmu_context *cpc, bool sched_in)
+static noinline void __perf_pmu_sched_task(struct perf_cpu_pmu_context *cpc, bool sched_in)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
 	struct pmu *pmu;
@@ -3623,7 +3623,7 @@ static void __perf_pmu_sched_task(struct perf_cpu_pmu_context *cpc, bool sched_i
 	perf_ctx_unlock(cpuctx, cpuctx->task_ctx);
 }
 
-static void perf_pmu_sched_task(struct task_struct *prev,
+static noinline void perf_pmu_sched_task(struct task_struct *prev,
 				struct task_struct *next,
 				bool sched_in)
 {
@@ -3851,7 +3851,7 @@ static int merge_sched_in(struct perf_event *event, void *data)
 	return 0;
 }
 
-static void pmu_groups_sched_in(struct perf_event_context *ctx,
+static noinline void pmu_groups_sched_in(struct perf_event_context *ctx,
 				struct perf_event_groups *groups,
 				struct pmu *pmu)
 {
@@ -3860,7 +3860,7 @@ static void pmu_groups_sched_in(struct perf_event_context *ctx,
 			   merge_sched_in, &can_add_hw);
 }
 
-static void ctx_groups_sched_in(struct perf_event_context *ctx,
+static noinline void ctx_groups_sched_in(struct perf_event_context *ctx,
 				struct perf_event_groups *groups,
 				bool cgroup)
 {
@@ -3873,13 +3873,13 @@ static void ctx_groups_sched_in(struct perf_event_context *ctx,
 	}
 }
 
-static void __pmu_ctx_sched_in(struct perf_event_context *ctx,
+static noinline void __pmu_ctx_sched_in(struct perf_event_context *ctx,
 			       struct pmu *pmu)
 {
 	pmu_groups_sched_in(ctx, &ctx->flexible_groups, pmu);
 }
 
-static void
+static noinline void
 ctx_sched_in(struct perf_event_context *ctx, enum event_type_t event_type)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
@@ -3926,7 +3926,7 @@ ctx_sched_in(struct perf_event_context *ctx, enum event_type_t event_type)
 		ctx_groups_sched_in(ctx, &ctx->flexible_groups, cgroup);
 }
 
-static void perf_event_context_sched_in(struct task_struct *task)
+static noinline void perf_event_context_sched_in(struct task_struct *task)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
 	struct perf_event_context *ctx;
@@ -9118,7 +9118,7 @@ static void perf_event_switch_output(struct perf_event *event, void *data)
 	perf_output_end(&handle);
 }
 
-static void perf_event_switch(struct task_struct *task,
+static noinline void perf_event_switch(struct task_struct *task,
 			      struct task_struct *next_prev, bool sched_in)
 {
 	struct perf_switch_event switch_event;
