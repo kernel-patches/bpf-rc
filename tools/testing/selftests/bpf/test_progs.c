@@ -1690,9 +1690,9 @@ int main(int argc, char **argv)
 	if (err)
 		return err;
 
-	/* hack "-n 282/3" */
+	/* hack "-n 283/3" */
 	{
-		char arg[] = "282/3";
+		char arg[] = "283/3";
 		char *subtest_str = strchr(arg, '/');
 
 		if (subtest_str) {

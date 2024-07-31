@@ -747,6 +747,7 @@ static void amd_pmu_check_overflow(void)
 
 static void amd_pmu_enable_event(struct perf_event *event)
 {
+	printk("%s %s %d, event %px\n", __FILE__, __func__, __LINE__, event);
 	x86_pmu_enable_event(event);
 }
 
@@ -1565,6 +1566,7 @@ void amd_pmu_enable_virt(void)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 	cpuc->perf_ctr_virt_mask = 0;
 
 	/* Reload all events */
@@ -1576,6 +1578,7 @@ void amd_pmu_disable_virt(void)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 	/*
 	 * We only mask out the Host-only bit so that host-only counting works
 	 * when SVM is disabled. If someone sets up a guest-only counter when

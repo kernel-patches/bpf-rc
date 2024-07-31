@@ -1434,9 +1434,11 @@ int x86_perf_event_set_period(struct perf_event *event)
 
 void x86_pmu_enable_event(struct perf_event *event)
 {
-	if (__this_cpu_read(cpu_hw_events.enabled))
+	if (__this_cpu_read(cpu_hw_events.enabled)) {
+		printk("%s %s %d\n", __FILE__, __func__, __LINE__);
 		__x86_pmu_enable_event(&event->hw,
 				       ARCH_PERFMON_EVENTSEL_ENABLE);
+	}
 }
 
 /*

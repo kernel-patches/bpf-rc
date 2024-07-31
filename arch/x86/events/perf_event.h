@@ -1192,15 +1192,20 @@ static inline void __x86_pmu_enable_event(struct hw_perf_event *hwc,
 {
 	u64 disable_mask = __this_cpu_read(cpu_hw_events.perf_ctr_virt_mask);
 
-	if (hwc->extra_reg.reg)
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+	if (hwc->extra_reg.reg) {
+		printk("%s %s %d\n", __FILE__, __func__, __LINE__);
 		wrmsrl(hwc->extra_reg.reg, hwc->extra_reg.config);
+	}
 
 	/*
 	 * Add enabled Merge event on next counter
 	 * if large increment event being enabled on this counter
 	 */
-	if (is_counter_pair(hwc))
+	if (is_counter_pair(hwc)) {
+		printk("%s %s %d\n", __FILE__, __func__, __LINE__);
 		wrmsrl(x86_pmu_config_addr(hwc->idx + 1), x86_pmu.perf_ctr_pair_en);
+	}
 
 	wrmsrl(hwc->config_base, (hwc->config | enable_mask) & ~disable_mask);
 }

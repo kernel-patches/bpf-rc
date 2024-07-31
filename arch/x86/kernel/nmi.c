@@ -345,6 +345,8 @@ static noinstr void default_do_nmi(struct pt_regs *regs)
 
 	instrumentation_begin();
 
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	if (microcode_nmi_handler_enabled() && microcode_nmi_handler())
 		goto out;
 

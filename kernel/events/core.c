@@ -12819,6 +12819,8 @@ SYSCALL_DEFINE5(perf_event_open,
 
 	mutex_unlock(&ctx->mutex);
 
+	printk("%s %s %d: event %px\n", __FILE__, __func__, __LINE__, event);
+
 	if (task) {
 		up_read(&task->signal->exec_update_lock);
 		put_task_struct(task);
