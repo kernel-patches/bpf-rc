@@ -2322,6 +2322,8 @@ static void __intel_pmu_enable_all(int added, bool pmi)
 
 static void intel_pmu_enable_all(int added)
 {
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	intel_pmu_pebs_enable_all();
 	__intel_pmu_enable_all(added, false);
 }
@@ -2856,6 +2858,8 @@ static void intel_pmu_enable_event(struct perf_event *event)
 	u64 enable_mask = ARCH_PERFMON_EVENTSEL_ENABLE;
 	struct hw_perf_event *hwc = &event->hw;
 	int idx = hwc->idx;
+
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 
 	if (unlikely(event->attr.precise_ip))
 		intel_pmu_pebs_enable(event);
@@ -4282,6 +4286,8 @@ static struct perf_guest_switch_msr *core_guest_get_msrs(int *nr, void *data)
 
 static void core_pmu_enable_event(struct perf_event *event)
 {
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	if (!event->attr.exclude_host)
 		x86_pmu_enable_event(event);
 }
@@ -4290,6 +4296,8 @@ static void core_pmu_enable_all(int added)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	int idx;
+
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 
 	for_each_set_bit(idx, x86_pmu.cntr_mask, X86_PMC_IDX_MAX) {
 		struct hw_perf_event *hwc = &cpuc->events[idx]->hw;

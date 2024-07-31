@@ -819,6 +819,8 @@ static void uncore_pmu_enable(struct pmu *pmu)
 	struct intel_uncore_pmu *uncore_pmu;
 	struct intel_uncore_box *box;
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	uncore_pmu = container_of(pmu, struct intel_uncore_pmu, pmu);
 
 	box = uncore_pmu_to_box(uncore_pmu, smp_processor_id());

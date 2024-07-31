@@ -1150,8 +1150,10 @@ void perf_pmu_disable(struct pmu *pmu)
 void noinline perf_pmu_enable(struct pmu *pmu)
 {
 	int *count = this_cpu_ptr(pmu->pmu_disable_count);
-	if (!--(*count))
+	if (!--(*count)) {
+		printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 		pmu->pmu_enable(pmu);
+	}
 }
 
 static void perf_assert_pmu_disabled(struct pmu *pmu)

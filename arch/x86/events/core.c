@@ -1288,6 +1288,8 @@ static void x86_pmu_enable(struct pmu *pmu)
 	struct hw_perf_event *hwc;
 	int i, added = cpuc->n_added;
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	if (!x86_pmu_initialized())
 		return;
 
