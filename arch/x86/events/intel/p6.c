@@ -149,6 +149,8 @@ static void p6_pmu_enable_all(int added)
 {
 	unsigned long val;
 
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	/* p6 only has one enable register */
 	rdmsrl(MSR_P6_EVNTSEL0, val);
 	val |= ARCH_PERFMON_EVENTSEL_ENABLE;

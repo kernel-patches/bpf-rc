@@ -168,6 +168,8 @@ static void knc_pmu_enable_all(int added)
 {
 	u64 val;
 
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	rdmsrl(MSR_KNC_IA32_PERF_GLOBAL_CTRL, val);
 	val |= (KNC_ENABLE_COUNTER0|KNC_ENABLE_COUNTER1);
 	wrmsrl(MSR_KNC_IA32_PERF_GLOBAL_CTRL, val);

@@ -259,6 +259,8 @@ static void zhaoxin_pmu_disable_all(void)
 
 static void zhaoxin_pmu_enable_all(int added)
 {
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, x86_pmu.intel_ctrl);
 }
 

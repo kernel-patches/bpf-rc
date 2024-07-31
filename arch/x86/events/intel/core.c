@@ -2299,6 +2299,8 @@ static void __intel_pmu_enable_all(int added, bool pmi)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	u64 intel_ctrl = hybrid(cpuc->pmu, intel_ctrl);
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	intel_pmu_lbr_enable_all(pmi);
 
 	if (cpuc->fixed_ctrl_val != cpuc->active_fixed_ctrl_val) {
@@ -2445,6 +2447,8 @@ static void intel_pmu_nhm_workaround(void)
 
 static void intel_pmu_nhm_enable_all(int added)
 {
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	if (added)
 		intel_pmu_nhm_workaround();
 	intel_pmu_enable_all(added);
@@ -2472,6 +2476,8 @@ static void intel_tfa_commit_scheduling(struct cpu_hw_events *cpuc, int idx, int
 static void intel_tfa_pmu_enable_all(int added)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 
 	/*
 	 * If we find PMC3 is no longer used when we enable the PMU, we can

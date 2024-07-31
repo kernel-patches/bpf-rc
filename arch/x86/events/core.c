@@ -741,6 +741,8 @@ void x86_pmu_enable_all(int added)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	int idx;
 
+	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
+
 	for_each_set_bit(idx, x86_pmu.cntr_mask, X86_PMC_IDX_MAX) {
 		struct hw_perf_event *hwc = &cpuc->events[idx]->hw;
 
@@ -1290,11 +1292,15 @@ static void x86_pmu_enable(struct pmu *pmu)
 
 	printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 
-	if (!x86_pmu_initialized())
+	if (!x86_pmu_initialized()) {
+		printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 		return;
+	}
 
-	if (cpuc->enabled)
+	if (cpuc->enabled) {
+		printk("YHS: %s %s %d\n", __FILE__, __func__, __LINE__);
 		return;
+	}
 
 	if (cpuc->n_added) {
 		int n_running = cpuc->n_events - cpuc->n_added;
@@ -1355,6 +1361,8 @@ static void x86_pmu_enable(struct pmu *pmu)
 
 	cpuc->enabled = 1;
 	barrier();
+
+	printk("YHS: %s %s %d: %px\n", __FILE__, __func__, __LINE__, static_call(x86_pmu_enable_all));
 
 	static_call(x86_pmu_enable_all)(added);
 }

@@ -755,13 +755,17 @@ static void amd_pmu_enable_all(int added)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	int idx;
 
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	amd_brs_enable_all();
 
 	for_each_set_bit(idx, x86_pmu.cntr_mask, X86_PMC_IDX_MAX) {
+		printk("%s %s %d\n", __FILE__, __func__, __LINE__);
 		/* only activate events which are marked as active */
 		if (!test_bit(idx, cpuc->active_mask))
 			continue;
 
+		printk("%s %s %d\n", __FILE__, __func__, __LINE__);
 		amd_pmu_enable_event(cpuc->events[idx]);
 	}
 }
@@ -788,6 +792,8 @@ static __always_inline void amd_pmu_core_enable_all(void)
 
 static void amd_pmu_v2_enable_all(int added)
 {
+	printk("%s %s %d\n", __FILE__, __func__, __LINE__);
+
 	amd_pmu_lbr_enable_all();
 	amd_pmu_core_enable_all();
 }
