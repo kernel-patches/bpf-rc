@@ -28,12 +28,9 @@ on:
 jobs:
   test:
     name: GCC BPF
-    runs-on: >-
-      ${{
-          contains(fromJSON(inputs.runs_on), 'codebuild')
-          && format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt)
-          || fromJSON(inputs.runs_on)
-      }}
+    runs-on:
+      - ${{ format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt) }}
+      - image:custom-linux-ghcr.io/kernel-patches/runner:kbuilder-debian-x86_64
     env:
       ARCH: ${{ inputs.arch }}
       BPF_NEXT_BASE_BRANCH: 'master'
@@ -78,7 +75,7 @@ jobs:
         run: zstd -d -T0 vmlinux-${{ inputs.arch }}-${{ inputs.toolchain_full }}.tar.zst --stdout | tar -xf -
 
       - name: Setup build environment
-        uses: libbpf/ci/setup-build-env@v3
+        uses: libbpf/ci/setup-build-env@debian-build-env
         with:
           arch: ${{ inputs.arch }}
           gcc-version: ${{ inputs.gcc_version }}
