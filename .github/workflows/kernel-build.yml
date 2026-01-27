@@ -49,12 +49,8 @@ jobs:
     # To run on CodeBuild, runs-on value must correspond to the AWS
     # CodeBuild project associated with the kernel-patches webhook
     # However matrix.py passes just a 'codebuild' string
-    runs-on: >-
-      ${{
-          contains(fromJSON(inputs.runs_on), 'codebuild')
-          && format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt)
-          || fromJSON(inputs.runs_on)
-      }}
+    runs-on: ubuntu-latest
+    container: ghcr.io/kernel-patches/runner:kbuilder-debian-x86_64
     env:
         ARTIFACTS_ARCHIVE: "vmlinux-${{ inputs.arch }}-${{ inputs.toolchain_full }}.tar.zst"
         BPF_NEXT_BASE_BRANCH: 'master'
