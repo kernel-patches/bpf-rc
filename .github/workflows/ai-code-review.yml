@@ -113,6 +113,7 @@ jobs:
           MERGE_BASE=$(git merge-base bpf-next/master HEAD)
           ln -s /ci/.semcode.db ${{ github.workspace }}/.semcode.db
           semcode-index --git "${MERGE_BASE}..HEAD"
+          rm -rf .semcode.db/lore
           semcode-index --lore bpf
 
       - name: Get patch subject
@@ -141,17 +142,22 @@ jobs:
           show_full_output: true
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          claude_args: '--model us.anthropic.claude-opus-4-5-20251101-v1:0'
+          claude_args: |
+            --mcp-config ci/claude/mcp.json
+            --model us.anthropic.claude-opus-4-5-20251101-v1:0
           allowed_bots: "kernel-patches-daemon-bpf,kernel-patches-review-bot"
           prompt: |
-            Print the list of tools available to you. Verify you can use semcode by running a trivial command.
+            Print the list of tools available to you. Verify you can use semcode-mcp.
 
       - uses: anthropics/claude-code-action@v1
         with:
           show_full_output: true
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          claude_args: '--max-turns 100 --model us.anthropic.claude-opus-4-5-20251101-v1:0'
+          claude_args: |
+            --mcp-config ci/claude/mcp.json
+            --max-turns 100
+            --model us.anthropic.claude-opus-4-5-20251101-v1:0
           allowed_bots: "kernel-patches-daemon-bpf,kernel-patches-review-bot"
           prompt: |
             Current directory is the root of a Linux Kernel git repository.

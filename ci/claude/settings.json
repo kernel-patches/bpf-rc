@@ -1,13 +1,7 @@
 {
   "permissions": {
-    "allow": ["*"],
-    "deny": ["mcp__github*"],
+    "allow": ["Bash", "Edit", "MultiEdit", "Write", "mcp__semcode__*"],
+    "deny": ["mcp__github__*"],
     "defaultMode": "acceptEdits"
-  },
-  "mcpServers": {
-    "semcode": {
-      "command": "semcode-mcp",
-      "args": []
-    }
   }
 }
