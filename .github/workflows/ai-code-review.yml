@@ -13,7 +13,7 @@ on:
 jobs:
   get-commits:
     # This codition is an indicator that we are running in a context of PR owned by kernel-patches org
-    if: ${{ github.repository == 'kernel-patches/bpf' && vars.AWS_REGION }}
+    if: ${{ github.repository == 'kernel-patches/bpf-rc' && vars.AWS_REGION }}
     runs-on:
       - ${{ format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt) }}
       - image:custom-linux-ghcr.io/kernel-patches/runner:kbuilder-debian-x86_64
