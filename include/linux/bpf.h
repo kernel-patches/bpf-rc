@@ -1210,6 +1210,12 @@ struct bpf_prog_offload {
 /* The argument is signed. */
 #define BTF_FMODEL_SIGNED_ARG		BIT(1)
 
+/* The argument is an arena pointer. */
+#define BTF_FMODEL_ARENA_ARG		BIT(2)
+
+/* The argument is nullable. */
+#define BTF_FMODEL_NULLABLE_ARG		BIT(3)
+
 struct btf_func_model {
 	u8 ret_size;
 	u8 ret_flags;
@@ -1282,6 +1288,20 @@ struct bpf_tramp_nodes {
 	struct bpf_tramp_node *nodes[BPF_MAX_TRAMP_LINKS];
 	int nr_nodes;
 };
+
+/*
+ * Which 8-byte ctx slots of a struct_ops trampoline hold arena kernel
+ * pointers that save_args() converts to the arena pointer form,
+ * ctx[slot] = (u32)(kaddr - kern_vm_start).
+ */
+struct bpf_tramp_arena_args {
+	u32 slots;
+	u32 nullable_slots;	/* subset of @slots where NULL is preserved */
+	u64 kern_vm_start;
+};
+
+bool bpf_tramp_collect_arena_args(struct bpf_tramp_nodes *tnodes, u32 flags,
+				  struct bpf_tramp_arena_args *aargs);
 
 struct bpf_tramp_run_ctx;
 
@@ -1684,6 +1704,11 @@ struct bpf_ctx_arg_aux {
 	u32 btf_id;
 	u32 ref_id;
 	bool refcounted;
+	/*
+	 * We don't encode NULL-ness in the type for the program, but still need
+	 * to distinguish it for the purposes of telling JITs what sequence to emit.
+	 */
+	bool arena_nullable;
 };
 
 struct btf_mod_pair {
