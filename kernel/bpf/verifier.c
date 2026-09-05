@@ -19,6 +19,7 @@
 #include <linux/bsearch.h>
 #include <linux/sort.h>
 #include <linux/perf_event.h>
+#include <linux/sched/signal.h>
 #include <linux/ctype.h>
 #include <linux/error-injection.h>
 #include <linux/bpf_lsm.h>
@@ -445,6 +446,13 @@ static bool subprog_is_exc_cb(struct bpf_verifier_env *env, int subprog)
 static bool reg_may_point_to_spin_lock(const struct bpf_reg_state *reg)
 {
 	return btf_record_has_field(reg_btf_record(reg), BPF_SPIN_LOCK | BPF_RES_SPIN_LOCK);
+}
+
+static bool map_value_has_static_identity(const struct bpf_reg_state *reg)
+{
+	const struct bpf_map *map = reg->map_ptr;
+
+	return !reg->map_uid && map->map_type == BPF_MAP_TYPE_ARRAY && map->max_entries == 1;
 }
 
 static bool type_is_rdonly_mem(u32 type)
@@ -1925,11 +1933,18 @@ static void refine_map_lookup_value(struct bpf_reg_state *reg)
 	if (map->inner_map_meta) {
 		reg->type = CONST_PTR_TO_MAP | maybe_null;
 		reg->map_ptr = map->inner_map_meta;
-		/* transfer reg's id which is unique for every map_lookup_elem
-		 * as UID of the inner map.
+		/*
+		 * Concrete inner maps share the verifier-visible inner_map_meta.
+		 * Preserve the lookup identity only for embedded objects whose
+		 * verification needs to distinguish concrete map instances. Doing
+		 * this for every inner map makes state pruning too conservative.
+		 *
+		 * Each map lookup has a unique register ID, so use it as the UID of
+		 * the inner map.
 		 */
 		if (btf_record_has_field(map->inner_map_meta->record,
-					 BPF_TIMER | BPF_WORKQUEUE | BPF_TASK_WORK))
+					 BPF_TIMER | BPF_WORKQUEUE | BPF_TASK_WORK |
+					 BPF_SPIN_LOCK | BPF_RES_SPIN_LOCK))
 			reg->map_uid = reg->id;
 	} else if (map->map_type == BPF_MAP_TYPE_XSKMAP) {
 		reg->type = PTR_TO_XDP_SOCK | maybe_null;
@@ -10035,6 +10050,9 @@ int map_set_for_each_callback_args(struct bpf_verifier_env *env,
 	__mark_reg_known_zero(&callee->regs[BPF_REG_3]);
 	callee->regs[BPF_REG_3].map_ptr = caller->regs[BPF_REG_1].map_ptr;
 	callee->regs[BPF_REG_3].map_uid = caller->regs[BPF_REG_1].map_uid;
+	if (reg_may_point_to_spin_lock(&callee->regs[BPF_REG_3]) &&
+	    !map_value_has_static_identity(&callee->regs[BPF_REG_3]))
+		callee->regs[BPF_REG_3].id = ++env->id_gen;
 
 	/* pointer to stack or null */
 	callee->regs[BPF_REG_4] = caller->regs[BPF_REG_3];
@@ -10131,6 +10149,9 @@ static int set_timer_callback_state(struct bpf_verifier_env *env,
 	__mark_reg_known_zero(&callee->regs[BPF_REG_3]);
 	callee->regs[BPF_REG_3].map_ptr = map_ptr;
 	callee->regs[BPF_REG_3].map_uid = map_uid;
+	if (reg_may_point_to_spin_lock(&callee->regs[BPF_REG_3]) &&
+	    !map_value_has_static_identity(&callee->regs[BPF_REG_3]))
+		callee->regs[BPF_REG_3].id = ++env->id_gen;
 
 	/* unused */
 	bpf_mark_reg_not_init(env, &callee->regs[BPF_REG_4]);
@@ -10249,6 +10270,9 @@ static int set_task_work_schedule_callback_state(struct bpf_verifier_env *env,
 	__mark_reg_known_zero(&callee->regs[BPF_REG_3]);
 	callee->regs[BPF_REG_3].map_ptr = map_ptr;
 	callee->regs[BPF_REG_3].map_uid = map_uid;
+	if (reg_may_point_to_spin_lock(&callee->regs[BPF_REG_3]) &&
+	    !map_value_has_static_identity(&callee->regs[BPF_REG_3]))
+		callee->regs[BPF_REG_3].id = ++env->id_gen;
 
 	/* unused */
 	bpf_mark_reg_not_init(env, &callee->regs[BPF_REG_4]);
@@ -21367,6 +21391,13 @@ skip_full_check:
 
 	if (ret == 0)
 		ret = bpf_fixup_call_args(env);
+	/*
+	 * JIT constant blinding treats instruction patching failures as a
+	 * request to fall back to the interpreter. Do not let such fallback
+	 * consume a fatal-signal cancellation from bpf_patch_insn_data().
+	 */
+	if (ret == 0 && fatal_signal_pending(current))
+		ret = -EINTR;
 
 	env->verification_time = ktime_get_ns() - start_time;
 	print_verification_stats(env);
@@ -21425,6 +21456,8 @@ skip_full_check:
 		env->prog->expected_attach_type = 0;
 
 	env->prog = __bpf_prog_select_runtime(env, env->prog, &ret);
+	if (ret == 0 && fatal_signal_pending(current))
+		ret = -EINTR;
 
 err_release_maps:
 	if (ret)
