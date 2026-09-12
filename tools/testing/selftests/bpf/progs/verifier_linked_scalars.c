@@ -349,8 +349,8 @@ l0_%=:							\
 }
 
 /*
- * Test that sync_linked_regs() checks reg->id (the linked target register)
- * for BPF_ADD_CONST32 rather than known_reg->id (the branch register).
+ * Test that sync_linked_regs() checks the linked target register (reg) for
+ * ADD_CONST_32 rather than the branch register (known_reg).
  */
 SEC("socket")
 __success
@@ -360,7 +360,7 @@ __naked void scalars_alu32_zext_linked_reg(void)
 	call %[bpf_get_prandom_u32];				\
 	w6 = w0;		/* r6 in [0, 0xFFFFFFFF] */	\
 	r7 = r6;		/* linked: same id as r6 */	\
-	w7 += 1;		/* alu32: r7.id |= BPF_ADD_CONST32 */ \
+	w7 += 1;		/* ADD_CONST_32 delta */ \
 	r8 = 0xFFFFffff ll;					\
 	if r6 < r8 goto l0_%=;					\
 	/* r6 in [0xFFFFFFFF, 0xFFFFFFFF] */			\
@@ -381,7 +381,7 @@ l0_%=:								\
 
 /*
  * Test that sync_linked_regs() skips propagation when one register used
- * alu32 (BPF_ADD_CONST32) and the other used alu64 (BPF_ADD_CONST64).
+ * alu32 (ADD_CONST_32) and the other used alu64 (ADD_CONST_64).
  * The delta relationship doesn't hold across different ALU widths.
  */
 SEC("socket")
@@ -392,13 +392,13 @@ __naked void scalars_alu32_alu64_cross_type(void)
 	call %[bpf_get_prandom_u32];				\
 	w6 = w0;		/* r6 in [0, 0xFFFFFFFF] */	\
 	r7 = r6;		/* linked: same id as r6 */	\
-	w7 += 1;		/* alu32: BPF_ADD_CONST32, delta = 1 */ \
+	w7 += 1;		/* ADD_CONST_32 delta */ \
 	r8 = r6;		/* linked: same id as r6 */	\
-	r8 += 2;		/* alu64: BPF_ADD_CONST64, delta = 2 */ \
+	r8 += 2;		/* ADD_CONST_64 delta */ \
 	r9 = 0xFFFFffff ll;					\
 	if r7 < r9 goto l0_%=;					\
 	/* r7 = 0xFFFFFFFF */					\
-	/* sync: known_reg=r7 (ADD_CONST32), reg=r8 (ADD_CONST64) */ \
+	/* sync: known_reg=r7 (ADD_CONST_32), reg=r8 (ADD_CONST_64) */ \
 	/* Without fix: r8 = zext(0xFFFFFFFF + 1) = 0 */	\
 	/* With fix: r8 stays [2, 0x100000001] (r8 >= 2) */	\
 	if r8 > 0 goto l1_%=;					\
@@ -416,7 +416,7 @@ l0_%=:								\
 /*
  * Test that regsafe() prevents pruning when two paths reach the same program
  * point with linked registers carrying different ADD_CONST flags (one
- * BPF_ADD_CONST32 from alu32, another BPF_ADD_CONST64 from alu64).
+ * ADD_CONST_32 from alu32, another ADD_CONST_64 from alu64).
  */
 SEC("socket")
 __failure __msg("div by zero")
@@ -431,11 +431,11 @@ __naked void scalars_alu32_alu64_regsafe_pruning(void)
 	call %[bpf_get_prandom_u32];				\
 	if r0 > 0 goto l_pathb_%=;				\
 	/* Path A: alu32 */					\
-	w7 += 1;		/* BPF_ADD_CONST32, delta = 1 */\
+	w7 += 1;		/* ADD_CONST_32 delta */\
 	goto l_merge_%=;					\
 l_pathb_%=:							\
 	/* Path B: alu64 */					\
-	r7 += 1;		/* BPF_ADD_CONST64, delta = 1 */\
+	r7 += 1;		/* ADD_CONST_64 delta */\
 l_merge_%=:							\
 	/* Merge point: regsafe() compares path B against cached path A. */ \
 	/* Narrow r6 to trigger sync_linked_regs for r7 */	\
@@ -593,7 +593,7 @@ l_exit_%=:							\
 }
 
 /*
- * Test that stale delta from a cleared BPF_ADD_CONST does not leak
+ * Test that stale delta from a cleared ADD_CONST_* does not leak
  * through assign_scalar_id_before_mov() into a new id, causing
  * sync_linked_regs() to compute an incorrect offset.
  */
@@ -605,10 +605,10 @@ __naked void scalars_stale_delta_from_cleared_id(void)
 	asm volatile ("						\
 	call %[bpf_get_prandom_u32];				\
 	r6 = r0;		/* r6 unknown, gets id A */	\
-	r6 += 5;		/* id A|ADD_CONST, delta 5 */	\
+	r6 += 5;		/* id A, ADD_CONST_64 delta */	\
 	r6 ^= 0;		/* id cleared; delta stays 5 */	\
 	r8 = r6;		/* new id B, stale delta 5 */	\
-	r8 += 3;		/* id B|ADD_CONST, delta 3 */	\
+	r8 += 3;		/* id B, ADD_CONST_64 delta */	\
 	r9 = r6;		/* id B, stale delta 5 */	\
 	if r9 != 10 goto l_exit_%=;				\
 	/* Bug: r8 = 10+(3-5) = 8; Fix: r8 = 10+(3-0) = 13 */	\
@@ -648,10 +648,10 @@ l_exit_%=:							\
 }
 
 /*
- * Test that regsafe() verifies base_id consistency for BPF_ADD_CONST
+ * Test that regsafe() verifies base_id consistency for ADD_CONST_*
  * linked scalars during state pruning.
  *
- * The false branch (explored first) links R3 to R2 via ADD_CONST.
+ * The false branch (explored first) links R3 to R2 via ADD_CONST_64.
  * The true branch (runtime path) links R3 to R4 (unrelated base_id).
  * At the merge point, pruning must fail because the linkage topology
  * differs.
@@ -675,7 +675,7 @@ __naked void add_const_base_id_pruning(void)
 	r2 = r0;						\
 	r2 &= 0xff;		/* R2 = scalar(id=A) [0,255] */	\
 	r3 = r2;		/* R3 linked to R2 (id=A) */	\
-	r3 += 10;		/* R3 id=A|ADD_CONST, delta=10 */\
+	r3 += 10;		/* ADD_CONST_64 delta */\
 	r6 = 0;							\
 	goto l_merge_%=;					\
 								\
@@ -687,7 +687,7 @@ l_true_%=:							\
 	r4 = r0;						\
 	r4 &= 0xff;		/* R4 = scalar [0,255], id=0 */	\
 	r3 = r4;		/* R3 linked to R4 (new id=C) */\
-	r3 += 10;		/* R3 id=C|ADD_CONST, delta=10 */\
+	r3 += 10;		/* ADD_CONST_64 delta */\
 	r6 = 0;							\
 								\
 l_merge_%=:							\
@@ -709,5 +709,624 @@ l_exit_%=:							\
 	: __imm(bpf_get_prandom_u32)
 	: __clobber_all);
 }
+
+/*
+ * A 32-bit mov from a wide source shares only the low 32 bits. Narrowing the
+ * source must reach the destination through that link.
+ */
+SEC("socket")
+__success
+__naked void zext_mov_narrow_src(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* forms the link */		\
+	if w6 != 0 goto 1f;	/* narrows r6, propagates to r7 */ \
+	if w7 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * The reverse does not hold: narrowing the low-32 link says nothing about the
+ * base's high bits, so r6 must stay unknown and the div stays reachable.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_narrow_dst_keeps_base(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* forms the link */		\
+	if r7 != 0 goto 1f;	/* narrows r7, must not propagate to r6 */ \
+	if r6 == 0 goto 1f;	/* taken only if r6 wrongly narrowed */	\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A provably-u32 source takes the full-equality path, not the low-32 one:
+ * narrowing the destination must reach the source.
+ */
+SEC("socket")
+__success
+__naked void zext_u32_src_is_full_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	w6 = w0;		/* r6 provably u32 */		\
+	w7 = w6;		/* full link, not low-32 */	\
+	if r7 > 10 goto 1f;	/* narrows r7, propagates to r6 */ \
+	if r6 > 10 goto 2f;					\
+	goto 1f;						\
+2:								\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A self-mov has nothing to link, so it must not mint an id for r6.
+ */
+SEC("socket")
+__success __log_level(2)
+/* an id would print as R6=scalar(id=N.lo32,smin=... */
+__msg("(bc) w6 = w6 {{.*}} R6=scalar(smin=0,")
+__naked void zext_self_mov_no_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r6 ^= 0;		/* drop the id */		\
+	w6 = w6;		/* forms no link */		\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A low-32-linked source keeps its id and flag across a further 32-bit mov,
+ * so narrowing the base still reaches the end of the chain.
+ */
+SEC("socket")
+__success
+__naked void zext_chain_keeps_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* forms the link */		\
+	w8 = w7;		/* link survives the 2nd mov */	\
+	if w6 != 0 goto 1f;	/* narrows r6, propagates to r8 */ \
+	if w8 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A delta on either side is not modelled together with a low-32 link, so no
+ * range propagates: here the branch register carries the delta.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_no_sync_when_base_has_delta(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* forms the link */		\
+	r8 = r6;						\
+	r8 += 3;		/* delta on the branch reg */	\
+	if r8 != 3 goto 1f;	/* must not propagate to r7 */	\
+	if w7 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * ... and here the low-32 link is the branch register, so the register
+ * carrying the delta must not be narrowed either.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_no_sync_from_subreg_base(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* forms the link */		\
+	r8 = r6;						\
+	r8 += 3;		/* delta on r8 */		\
+	if w7 != 0 goto 1f;	/* must not propagate to r8 */	\
+	if r8 == 3 goto 1f;	/* taken only if r8 wrongly narrowed */	\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * Two low-32 links on the same base do propagate to each other: both are the
+ * zero-extension of the same low 32 bits.
+ */
+SEC("socket")
+__success
+__naked void zext_sync_between_two_subregs(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	w7 = w6;		/* two links on one base */	\
+	w8 = w6;						\
+	if w7 != 0 goto 1f;	/* narrows r7, propagates to r8 */ \
+	if w8 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * Only one of the two paths links r7 to r8, so the narrowing of w8 reaches r7
+ * on one and not the other and the div stays reachable. This checks the
+ * outcome, not the mechanism: the two states differ in their ids and contents,
+ * so regsafe() has many reasons to keep them apart and disabling any single
+ * one of its checks does not make this fail.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__flag(BPF_F_TEST_STATE_FREQ)
+__naked void zext_unlinked_path_stays_reachable(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r6 &= 1;						\
+	if r6 >= 1 goto 2f;					\
+	/* explored first: r7 is a low-32 link of r8 */		\
+	call %[bpf_get_prandom_u32];				\
+	r8 = r0;						\
+	w7 = w8;		/* forms the link */		\
+	goto 1f;						\
+2:								\
+	/* runtime path: r7 unrelated to r8 */			\
+	call %[bpf_get_prandom_u32];				\
+	r8 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	w7 = w0;		/* no link here */		\
+1:								\
+	if w8 != 0 goto 3f;	/* propagates to r7 only if linked */ \
+	if w7 == 0 goto 3f;					\
+	r0 /= 0;						\
+3:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * Forming the link calls assign_scalar_id_before_mov(), which drops a delta
+ * link on the source. That is what the narrow-source path has always done,
+ * so a wide source behaves the same: r5 stops tracking r6.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_mov_breaks_add_const_src(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r5 = r6;		/* r5, r6 linked */		\
+	r5 += 3;		/* r5 = base + 3 */		\
+	w7 = w5;		/* breaks r5's delta link */	\
+	if r6 > 9 goto 1f;	/* r6 in [0, 9] */		\
+	if r5 < 13 goto 1f;	/* taken only if r5 still linked */ \
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A narrowing fill keeps only the slot's low 32 bits, so a later narrowing of
+ * the spilled value must still reach the filled register. Same relation as a
+ * 32-bit mov from a wide source, with the stack slot as the base.
+ */
+SEC("socket")
+__success
+__naked void zext_fill_narrow_from_wide_spill(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;		/* r6 = full 64-bit unknown */	\
+	*(u64 *)(r10 - 8) = r6;	/* slot linked to r6 */		\
+	r2 = *(u32 *)(r10 - 8);	/* narrowing fill, forms the link */ \
+	if w6 != 0 goto 1f;	/* narrows r6, propagates to r2 */ \
+	if r2 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A full-width fill of a wide slot is a plain 64-bit equality, not a low-32
+ * link, so it must keep propagating exactly as before.
+ */
+SEC("socket")
+__success
+__naked void zext_fill_full_width_keeps_full_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;						\
+	*(u64 *)(r10 - 8) = r6;					\
+	r2 = *(u64 *)(r10 - 8);	/* no narrowing */		\
+	if r6 != 0 goto 1f;					\
+	if r2 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A sub-word fill is below the low-32 model, so no link is formed and the
+ * relation is dropped as before.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_fill_byte_forms_no_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;						\
+	*(u64 *)(r10 - 8) = r6;					\
+	r2 = *(u8 *)(r10 - 8);	/* 1-byte fill: no link */	\
+	if w6 != 0 goto 1f;					\
+	if r2 == 0 goto 1f;	/* not deduced */		\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A narrowing spill stores only the source's low 32 bits, so the slot is their
+ * zero-extension. A later narrowing of the source must still reach anything
+ * filled back out of that slot.
+ */
+SEC("socket")
+__success
+__naked void zext_narrowing_spill_keeps_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;		/* r6 = full 64-bit unknown */	\
+	*(u32 *)(r10 - 8) = r6;	/* narrowing spill, forms the link */ \
+	r2 = *(u32 *)(r10 - 8);	/* fill it back */		\
+	if w6 != 0 goto 1f;	/* narrows r6, propagates to r2 */ \
+	if r2 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A sub-word spill is below the low-32 model, so no link is formed there.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void zext_narrowing_spill_byte_no_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;						\
+	*(u8 *)(r10 - 8) = r6;	/* 1-byte spill: no link */	\
+	r2 = *(u8 *)(r10 - 8);					\
+	if w6 != 0 goto 1f;					\
+	if r2 == 0 goto 1f;	/* not deduced */		\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+#ifdef CAN_USE_MOVSX
+
+/*
+ * A 32-bit sign extension keeps the low 32 bits, so narrowing the source
+ * reaches the destination the same way it does for a zero extension. The high
+ * half follows the sign, so the value seen here is negative.
+ */
+SEC("socket")
+__success
+__naked void sext_mov_wide_src(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r7 = (s32)r6;		/* forms the link */		\
+	if w6 != -1 goto 1f;	/* narrows r6, propagates to r7 */ \
+	if r7 == -1 goto 1f;	/* sign-extended, not 0xffffffff */ \
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * r0 = (s32)r0 is how a sign-extended int return lands. src and dst are the
+ * same register, but r0 is already linked, so there is a set for it to stay
+ * in and the narrowing still propagates.
+ */
+SEC("socket")
+__success
+__naked void sext_self_mov_keeps_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r7 = r6;		/* r6, r7 linked */		\
+	r7 = (s32)r7;		/* self-mov, keeps the id */	\
+	if w6 != -1 goto 1f;	/* narrows r6, propagates to r7 */ \
+	if r7 == -1 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * The same self-mov on an unlinked register has nothing to link to, so it
+ * must not mint an id that would leave r6 describing itself.
+ */
+SEC("socket")
+__success __log_level(2)
+/* an id would print as R6=scalar(id=N.lo32sx,smin=... */
+__msg("(bf) r6 = (s32)r6 {{.*}} R6=scalar(smin=")
+__naked void sext_self_mov_no_link(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r6 ^= 0;		/* drop the id */		\
+	r6 = (s32)r6;		/* forms no link */		\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * A delta on the branch register is not modelled together with a low-32
+ * link, so the propagation is skipped rather than guessed at.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void sext_no_sync_when_base_has_delta(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r7 = (s32)r6;		/* forms the link */		\
+	r8 = r6;						\
+	r8 += 3;		/* delta on the branch reg */	\
+	if r8 != 3 goto 1f;	/* must not propagate to r7 */	\
+	if r7 == 0 goto 1f;					\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * ... and with the link as the branch register the propagation must not run
+ * backwards: a ->subreg register knows nothing about the base's high half, so
+ * narrowing it must leave the rest of the set alone. Were the guard missing,
+ * r8 would be rebuilt as r7 + 3 == 2, treating r7 as if it were the base.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__naked void sext_no_sync_from_subreg_base(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r7 = (s32)r6;		/* forms the link */		\
+	r8 = r6;						\
+	r8 += 3;		/* delta on r8 */		\
+	if r7 != -1 goto 1f;	/* must not propagate to r8 */	\
+	if r8 == 2 goto 1f;	/* taken only if r8 wrongly narrowed */	\
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * The two kinds rebuild the high half differently: the same low half reaches
+ * -1 through a sign extension and 0xffffffff through a zero extension, so only
+ * one path clears the guard. As above this checks the outcome -- the differing
+ * ranges keep the states apart on their own.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__flag(BPF_F_TEST_STATE_FREQ)
+__naked void sext_kinds_reach_different_values(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r6 &= 1;						\
+	if r6 >= 1 goto 2f;					\
+	/* explored first: r7 is a sign-extended link of r8 */	\
+	call %[bpf_get_prandom_u32];				\
+	r8 = r0;						\
+	r7 = (s32)r8;						\
+	goto 1f;						\
+2:								\
+	/* runtime path: r7 is a zero-extended link of r8 */	\
+	call %[bpf_get_prandom_u32];				\
+	r8 = r0;						\
+	w7 = w8;						\
+1:								\
+	if w8 != -1 goto 3f;					\
+	if r7 == -1 goto 3f;	/* only the sign-extended path */ \
+	r0 /= 0;						\
+3:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * The sign-extending counterpart: the filled register is the sign extension of
+ * the slot's low 32 bits, so a narrowing of those bits arrives sign-extended.
+ */
+SEC("socket")
+__success
+__naked void sext_fill_narrow_from_wide_spill(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r6 |= r0;		/* r6 = full 64-bit unknown */	\
+	*(u64 *)(r10 - 8) = r6;	/* slot linked to r6 */		\
+	r2 = *(s32 *)(r10 - 8);	/* narrowing sx fill */		\
+	if w6 != -1 goto 1f;	/* narrows r6, propagates to r2 */ \
+	if r2 == -1 goto 1f;	/* sign-extended, not 0xffffffff */ \
+	r0 /= 0;						\
+1:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+/*
+ * The same, for the two fill kinds off one slot.
+ */
+SEC("socket")
+__failure __msg("div by zero")
+__flag(BPF_F_TEST_STATE_FREQ)
+__naked void fill_kinds_reach_different_values(void)
+{
+	asm volatile ("						\
+	call %[bpf_get_prandom_u32];				\
+	r6 = r0;						\
+	r6 &= 1;						\
+	call %[bpf_get_prandom_u32];				\
+	r8 = r0;						\
+	call %[bpf_get_prandom_u32];				\
+	r0 <<= 32;						\
+	r8 |= r0;						\
+	*(u64 *)(r10 - 8) = r8;					\
+	if r6 >= 1 goto 2f;					\
+	r2 = *(s32 *)(r10 - 8);	/* sign-extending fill */	\
+	goto 1f;						\
+2:								\
+	r2 = *(u32 *)(r10 - 8);	/* zero-extending fill */	\
+1:								\
+	if w8 != -1 goto 3f;					\
+	if r2 == -1 goto 3f;	/* only the sign-extending path */ \
+	r0 /= 0;						\
+3:								\
+	r0 = 0;							\
+	exit;							\
+"	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+#endif /* CAN_USE_MOVSX */
 
 char _license[] SEC("license") = "GPL";
