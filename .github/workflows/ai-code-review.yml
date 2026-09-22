@@ -144,7 +144,7 @@ jobs:
           mv review-prompts/kernel ${{ github.workspace }}/review
           rm -rf review-prompts
 
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@9ca9355b36297178e28d37c799d1c9c8a28e6507 # main: Claude Code 2.1.280, required for Opus 5.5
         with:
           show_full_output: true
           github_token: ${{ steps.app-token.outputs.token }}
