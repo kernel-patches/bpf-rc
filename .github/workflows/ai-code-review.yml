@@ -108,6 +108,11 @@ jobs:
 
       - name: semcode-index
         shell: bash
+        env:
+          # semcode-index --lore fetches into the lore archive baked into the
+          # image, and gitoxide needs a committer to update the reflog.
+          GIT_COMMITTER_NAME: semcode-index
+          GIT_COMMITTER_EMAIL: semcode-index@localhost
         run: |
           git fetch --no-tags https://github.com/kernel-patches/bpf.git bpf-next
           git checkout ${{ matrix.commit }} -b patch-series.local
