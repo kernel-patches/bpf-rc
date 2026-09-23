@@ -155,7 +155,7 @@ jobs:
             echo 'EOF_TRIGGER_PROMPT'
           } >> "$GITHUB_OUTPUT"
 
-      - uses: anthropics/claude-code-action@9ca9355b36297178e28d37c799d1c9c8a28e6507 # main: Claude Code 2.1.280, required for Opus 5.5
+      - uses: anthropics/claude-code-action@v1
         with:
           show_full_output: true
           github_token: ${{ steps.app-token.outputs.token }}
@@ -164,6 +164,7 @@ jobs:
             --max-turns 100
             --mcp-config ci/claude/mcp.json
             --model us.anthropic.claude-opus-5-5
+            --effort xhigh
           allowed_bots: "kernel-patches-daemon-bpf,kernel-patches-review-bot"
           prompt: ${{ steps.setup-ai-review.outputs.prompt }}
 
