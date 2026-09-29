@@ -135,7 +135,7 @@ jobs:
         with:
           repository: 'kernel-patches/bpf-ai-review'
           path: 'bpf-ai-review'
-          ref: main
+          ref: easy-wins
           submodules: true
 
       - name: Set up AI review
