@@ -216,6 +216,21 @@ jobs:
               echo "review_metadata=$review_metadata" >> $GITHUB_OUTPUT
           fi
 
+      - name: Write a TL;DR of the review
+        if: steps.check_review.outputs.review_file != '' && steps.setup-ai-review.outputs.tldr_prompt != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: anthropics/claude-code-action@v1
+        with:
+          show_full_output: true
+          github_token: ${{ github.token }}
+          use_bedrock: "true"
+          claude_args: |
+            --max-turns 5
+            --model global.anthropic.claude-sonnet-5-5
+          allowed_bots: "kernel-patches-daemon-bpf,kernel-patches-review-bot"
+          prompt: ${{ steps.setup-ai-review.outputs.tldr_prompt }}
+
       - name: Generate GitHub App token
         id: app-token
         if: steps.check_review.outputs.review_file != ''
@@ -231,6 +246,7 @@ jobs:
           REVIEW_FILE: ${{ steps.check_review.outputs.review_file }}
           REVIEW_METADATA: ${{ steps.check_review.outputs.review_metadata }}
           PATCH_SUBJECT: ${{ steps.get-patch-subject.outputs.subject }}
+          TLDR_FILE: ${{ github.workspace }}/review-tldr.txt
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
