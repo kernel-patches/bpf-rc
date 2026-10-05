@@ -512,6 +512,7 @@ void tcp_set_keepalive(struct sock *sk, int val);
 void tcp_syn_ack_timeout(const struct request_sock *req);
 int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		int flags);
+int __tcp_set_rcvlowat(struct sock *sk, int val, bool wakeup);
 int tcp_set_rcvlowat(struct sock *sk, int val);
 void tcp_set_rcvbuf(struct sock *sk, int val);
 int tcp_set_window_clamp(struct sock *sk, int val);
@@ -2934,6 +2935,7 @@ static inline int tcp_call_bpf_3arg(struct sock *sk, int op, u32 arg1, u32 arg2,
 static inline void tcp_clear_sock_ops_cb_flags(struct sock *sk)
 {
 	tcp_sk(sk)->bpf_sock_ops_cb_flags = 0;
+	WRITE_ONCE(tcp_sk(sk)->bpf_tcp_ops_flags, 0);
 }
 
 #else
@@ -3053,6 +3055,12 @@ struct bpf_tcp_ops {
 			      struct request_sock *req, struct sk_buff *syn_skb,
 			      enum tcp_synack_type synack_type,
 			      u32 opt_off);
+
+	/* Called when an incoming skb is enqueued to sk->sk_receive_queue. */
+	void (*enqueue_rcvq)(struct sock *sk, struct sk_buff *skb);
+
+	/* Called after data is dequeued from sk->sk_receive_queue. */
+	void (*dequeue_rcvq)(struct sock *sk);
 };
 
 #define bpf_tcp_ops_call(op, sk, ...)					\
@@ -3141,7 +3149,20 @@ static inline void tcp_bpf_rtt(struct sock *sk, long mrtt, u32 srtt)
 {
 	if (BPF_SOCK_OPS_TEST_FLAG(tcp_sk(sk), BPF_SOCK_OPS_RTT_CB_FLAG))
 		tcp_call_bpf_2arg(sk, BPF_SOCK_OPS_RTT_CB, mrtt, srtt);
-	bpf_tcp_ops_call(rtt, sk, mrtt, srtt);
+	if (BPF_TCP_OPS_TEST_FLAG(tcp_sk(sk), RTT))
+		bpf_tcp_ops_call(rtt, sk, mrtt, srtt);
+}
+
+static inline void bpf_tcp_ops_enqueue_rcvq(struct sock *sk, struct sk_buff *skb)
+{
+	if (BPF_TCP_OPS_TEST_FLAG(tcp_sk(sk), RCVQ))
+		bpf_tcp_ops_call(enqueue_rcvq, sk, skb);
+}
+
+static inline void bpf_tcp_ops_dequeue_rcvq(struct sock *sk)
+{
+	if (BPF_TCP_OPS_TEST_FLAG(tcp_sk(sk), RCVQ))
+		bpf_tcp_ops_call(dequeue_rcvq, sk);
 }
 
 #if IS_ENABLED(CONFIG_SMC)

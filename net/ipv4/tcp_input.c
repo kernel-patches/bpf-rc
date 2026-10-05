@@ -210,6 +210,13 @@ static void bpf_skops_established(struct sock *sk, int bpf_op,
 
 static void bpf_tcp_ops_parse_hdr(struct sock *sk, struct sk_buff *skb)
 {
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	if (!(tp->rx_opt.saw_unknown &&
+	      BPF_TCP_OPS_TEST_FLAG(tp, PARSE_HDR_OPT_UNKNOWN)) &&
+	    !BPF_TCP_OPS_TEST_FLAG(tp, PARSE_HDR_OPT_ALL))
+		return;
+
 	switch (sk->sk_state) {
 	case TCP_SYN_RECV:
 	case TCP_SYN_SENT:
@@ -5350,6 +5357,8 @@ static void tcp_ofo_queue(struct sock *sk)
 			continue;
 		}
 
+		bpf_tcp_ops_enqueue_rcvq(sk, skb);
+
 		tail = skb_peek_tail(&sk->sk_receive_queue);
 		eaten = tail && tcp_try_coalesce(sk, tail, skb, &fragstolen);
 		tcp_rcv_nxt_update(tp, TCP_SKB_CB(skb)->end_seq);
@@ -5552,6 +5561,8 @@ static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb,
 {
 	int eaten;
 	struct sk_buff *tail = skb_peek_tail(&sk->sk_receive_queue);
+
+	bpf_tcp_ops_enqueue_rcvq(sk, skb);
 
 	eaten = (tail &&
 		 tcp_try_coalesce(sk, tail,
