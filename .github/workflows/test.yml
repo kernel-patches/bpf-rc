@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   set-matrix:
+    # BPF CI doesn't work in kernel-patches/bpf-rc, where its runs only queue up.
+    if: ${{ github.repository != 'kernel-patches/bpf-rc' }}
     runs-on: ubuntu-slim
     permissions: read-all
     outputs:
