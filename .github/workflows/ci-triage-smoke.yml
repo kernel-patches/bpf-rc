@@ -21,7 +21,7 @@ jobs:
       run:
         shell: bash
     env:
-      BEDROCK_MODEL: openai.gpt-6.1-sol
+      BEDROCK_MODEL: us.openai.gpt-6.1-sol
       CI_RUN_ID: '38774089782'
       TESTED_SHA: 212a0918077d0d179779d8330da622465180921b
     steps:
