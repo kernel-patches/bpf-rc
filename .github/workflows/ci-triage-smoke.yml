@@ -23,12 +23,12 @@ jobs:
     env:
       BEDROCK_MODEL: global.anthropic.claude-sonnet-5-5
     steps:
-      - name: Install jq and Pi
+      - name: Install gh, jq and Pi
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends jq
+          apt-get install -y -qq --no-install-recommends gh jq
           gh release download v1.3.0 -R earendil-works/pi \
             --pattern "pi-linux-${RUNNER_ARCH,,}.tar.gz" --output "$RUNNER_TEMP/pi.tar.gz"
           tar -xzf "$RUNNER_TEMP/pi.tar.gz" -C "$RUNNER_TEMP"
