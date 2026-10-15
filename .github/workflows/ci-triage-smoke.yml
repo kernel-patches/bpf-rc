@@ -21,7 +21,7 @@ jobs:
       run:
         shell: bash
     env:
-      BEDROCK_MODEL: global.anthropic.claude-sonnet-5-5
+      BEDROCK_MODEL: zai.glm-5.3
     steps:
       - name: Install gh, jq and Pi
         env:
