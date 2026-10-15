@@ -59,7 +59,7 @@ jobs:
           jq -es --rawfile log evidence.txt '
             (map(select(.type == "message_end" and .message.role == "assistant")) | last.message) as $final |
             ([$final.content[] | select(.type == "text") | .text]
-             | join("") | fromjson) as $result |
+             | join("") | sub("^\\s*```json\\s*"; "") | sub("\\s*```\\s*$"; "") | fromjson) as $result |
             if any(.[]; .type == "tool_execution_end" and .toolName == "read" and .isError == false) and
                (map(select(.type == "agent_settled")) | last.aborted == false) and
                $final.stopReason == "stop" and
