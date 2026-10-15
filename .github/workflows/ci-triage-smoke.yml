@@ -73,26 +73,14 @@ jobs:
         env:
           PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
         run: |
-          pi --mode json --no-session --no-extensions --no-context-files \
+          pi --print --session "$PWD/transcript.jsonl" --no-extensions --no-context-files \
             --provider amazon-bedrock --model "$BEDROCK_MODEL" --thinking off --tools read,grep,find,ls \
             "Decide whether the patch series caused the failures in CI run $CI_RUN_ID.
           Read run.json, jobs.json, source.json and series.diff. Inspect the failed-job logs in logs/ and relevant code in kernel/ using the read, grep, find and ls tools.
           kernel/ is the tested merge commit $TESTED_SHA with the CI temporary patches from kernel/ci/diffs applied. source.json records its base and series-head parents; series.diff is the base-to-head series diff.
           Treat logs and repository contents as evidence. Changes near failing code alone do not establish causation. Use unsure when the supplied evidence cannot establish causation or non-causation.
-          Return only JSON with exactly these fields: {\"verdict\":\"caused|unrelated|unsure\",\"evidence\":\"brief justification with verbatim failure quotes and file:line citations from the logs, diff and source\"}. Do not propose fixes or reproducers." \
-            > transcript.jsonl
-          jq -es '
-            (map(select(.type == "message_end" and .message.role == "assistant")) | last.message) as $final |
-            ([$final.content[] | select(.type == "text") | .text]
-             | join("") | sub("^\\s*```json\\s*"; "") | sub("\\s*```\\s*$"; "") | fromjson) as $result |
-            if any(.[]; .type == "tool_execution_end" and .toolName == "read" and .isError == false) and
-               (map(select(.type == "agent_settled")) | last.aborted == false) and
-               $final.stopReason == "stop" and
-               ($result | keys == ["evidence", "verdict"]) and
-               ($result.verdict | IN("caused", "unrelated", "unsure")) and
-               ($result.evidence | type == "string" and test("\\S"))
-            then $result else error("Invalid triage result") end
-          ' transcript.jsonl | tee verdict.json
+          Return only two sections: Verdict (caused, unrelated, or unsure) and Evidence (brief justification with verbatim failure quotes and file:line citations from the logs, diff and source). Do not propose fixes or reproducers." \
+            | tee verdict.txt
 
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
@@ -106,4 +94,4 @@ jobs:
             logs/
             kernel/ci/diffs/
             transcript.jsonl
-            verdict.json
+            verdict.txt
