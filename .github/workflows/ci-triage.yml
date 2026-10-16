@@ -1,8 +1,8 @@
-name: CI Triage Smoke (rc)
+name: CI Triage (rc)
 
 on:
   push:
-    branches: [ai-review-test-triage-smoke]
+    branches: [ai-review-test-triage]
   schedule:
     - cron: '23 * * * *'
   workflow_dispatch:
@@ -15,13 +15,16 @@ on:
         type: string
 
 concurrency:
-  group: ci-triage-smoke
+  group: ci-triage
   cancel-in-progress: false
 
 permissions:
   contents: read
   actions: read
   id-token: write
+
+env:
+  PYGITHUB_VERSION: 2.10.0
 
 defaults:
   run:
@@ -35,6 +38,22 @@ jobs:
     outputs:
       runs: ${{ steps.select.outputs.runs }}
     steps:
+      - name: Install Python client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-venv
+          python3 -m venv "$RUNNER_TEMP/triage-venv"
+          "$RUNNER_TEMP/triage-venv/bin/python" -m pip install "PyGithub==$PYGITHUB_VERSION"
+          echo "$RUNNER_TEMP/triage-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout CI code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: automation
+          sparse-checkout: ci/triage.py
+          sparse-checkout-cone-mode: false
+
       - name: Select up to ten production failures
         id: select
         env:
@@ -42,56 +61,8 @@ jobs:
           CI_RUN_ID: ${{ inputs.run_id }}
           CI_RUN_ATTEMPT: ${{ inputs.attempt }}
         run: |
-          set -euo pipefail
-          if [[ -n "$CI_RUN_ID" ]]; then
-            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ &&
-              ( -z "$CI_RUN_ATTEMPT" || "$CI_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ) ]] || {
-                echo "Invalid production run ID or attempt" >&2; exit 1;
-              }
-            url="repos/kernel-patches/bpf/actions/runs/$CI_RUN_ID"
-            if [[ -n "$CI_RUN_ATTEMPT" ]]; then url+="/attempts/$CI_RUN_ATTEMPT"; fi
-            gh api "$url" | jq '{workflow_runs: [.]}' > candidates.json
-          else
-            [[ -z "$CI_RUN_ATTEMPT" ]] || { echo "Attempt requires a run ID" >&2; exit 1; }
-            for status in failure timed_out; do
-              gh api --method GET "repos/kernel-patches/bpf/actions/workflows/test.yml/runs" \
-                -f event=pull_request -f "status=$status" -F per_page=100 \
-                -f "created=>$(date -u -d '7 days ago' +%FT%TZ)"
-            done | jq -s '{workflow_runs: ([.[].workflow_runs[]] |
-              unique_by([.id, .run_attempt]) | sort_by(.created_at) | reverse | .[:100])}' > candidates.json
-          fi
-          jq -r '.workflow_runs[] |
-            select(.path == ".github/workflows/test.yml" and .event == "pull_request" and
-              .status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out")) |
-            select(.head_branch | startswith("series/")) |
-            [.id, .run_attempt, .head_branch] | @tsv' candidates.json > candidates.tsv
-          : > selected.jsonl
-          count=0
-          while IFS=$'\t' read -r run_id attempt branch; do
-            if [[ -z "$CI_RUN_ID" ]]; then
-              recorded=false
-              for state in 'done' 'failed'; do
-                found=$(gh api --method GET "repos/kernel-patches/bpf-rc/actions/artifacts" \
-                  -f "name=ci-triage-$state-$run_id-$attempt" \
-                  --jq '[.artifacts[] | select(.expired == false)] | length')
-                if (( found > 0 )); then recorded=true; break; fi
-              done
-              if [[ "$recorded" == true ]]; then echo "Skipping recorded run $run_id attempt $attempt"; continue; fi
-            fi
-            pr=$(gh api --method GET "repos/kernel-patches/bpf-rc/pulls" \
-              -f state=all -f "head=kernel-patches:$branch" -F per_page=1 \
-              --jq '.[0].number // empty')
-            if [[ -z "$pr" ]]; then echo "No rc twin for $run_id ($branch)"; continue; fi
-            jq -nc --arg run "$run_id" --arg attempt "$attempt" --argjson pr "$pr" \
-              --arg branch "$branch" '{run: $run, attempt: $attempt, pr: $pr, branch: $branch}' >> selected.jsonl
-            if (( ++count == 10 )); then break; fi
-          done < candidates.tsv
-          jq -sc . selected.jsonl > selection.json
+          python3 automation/ci/triage.py discover --run-id "$CI_RUN_ID" --attempt "$CI_RUN_ATTEMPT"
           echo "runs=$(cat selection.json)" >> "$GITHUB_OUTPUT"
-          echo "Selected $count production runs"
-          [[ -z "$CI_RUN_ID" || "$count" == 1 ]] || {
-            echo "Replay needs a completed failed test.yml series run with an rc twin" >&2; exit 1;
-          }
 
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
@@ -102,7 +73,7 @@ jobs:
             candidates.json
             selection.json
 
-  smoke:
+  triage:
     needs: discover
     if: ${{ needs.discover.outputs.runs != '[]' }}
     name: 'Triage ${{ matrix.run }} attempt ${{ matrix.attempt }} (rc #${{ matrix.pr }})'
