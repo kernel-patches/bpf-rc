@@ -53,9 +53,12 @@ jobs:
             gh api "$url" | jq '{workflow_runs: [.]}' > candidates.json
           else
             [[ -z "$CI_RUN_ATTEMPT" ]] || { echo "Attempt requires a run ID" >&2; exit 1; }
-            gh api --method GET "repos/kernel-patches/bpf/actions/workflows/test.yml/runs" \
-              -f event=pull_request -f status=completed -F per_page=100 \
-              -f "created=>$(date -u -d '7 days ago' +%FT%TZ)" > candidates.json
+            for status in failure timed_out; do
+              gh api --method GET "repos/kernel-patches/bpf/actions/workflows/test.yml/runs" \
+                -f event=pull_request -f "status=$status" -F per_page=100 \
+                -f "created=>$(date -u -d '7 days ago' +%FT%TZ)"
+            done | jq -s '{workflow_runs: ([.[].workflow_runs[]] |
+              unique_by([.id, .run_attempt]) | sort_by(.created_at) | reverse | .[:100])}' > candidates.json
           fi
           jq -r '.workflow_runs[] |
             select(.path == ".github/workflows/test.yml" and .event == "pull_request" and
@@ -73,7 +76,7 @@ jobs:
                   --jq '[.artifacts[] | select(.expired == false)] | length')
                 if (( found > 0 )); then recorded=true; break; fi
               done
-              if [[ "$recorded" == true ]]; then continue; fi
+              if [[ "$recorded" == true ]]; then echo "Skipping recorded run $run_id attempt $attempt"; continue; fi
             fi
             pr=$(gh api --method GET "repos/kernel-patches/bpf-rc/pulls" \
               -f state=all -f "head=kernel-patches:$branch" -F per_page=1 \
