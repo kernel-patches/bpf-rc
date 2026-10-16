@@ -13,6 +13,25 @@ jobs:
   smoke:
     if: ${{ github.repository == 'kernel-patches/bpf-rc' && vars.AWS_REGION }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - case: latest
+            run: ''
+          - case: duration
+            run: '38782386543'
+          - case: timer
+            run: '38774089782'
+          - case: jit
+            run: '38779093899'
+          - case: upload
+            run: '37863145723'
+          - case: qemu
+            run: '38408140439'
+          - case: no-comparisons
+            run: '38774089782'
     runs-on:
       - ${{ format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt) }}
       - image:custom-linux-ghcr.io/kernel-patches/runner:ai-review
@@ -22,7 +41,7 @@ jobs:
         shell: bash
     env:
       BEDROCK_MODEL: us.openai.gpt-6.1-sol
-      CI_RUN_ID: '' # Empty selects the latest failed production series; set an ID to replay it.
+      CI_RUN_ID: ${{ matrix.run }} # Empty selects the latest failed production series.
     steps:
       - name: Install Pi and tools
         env:
@@ -122,6 +141,15 @@ jobs:
           repo-root: ${{ github.workspace }}/kernel
           patches-root: ${{ github.workspace }}/kernel/ci/diffs
 
+      - name: Withhold comparison evidence
+        if: ${{ matrix.case == 'no-comparisons' }}
+        run: |
+          for run_id in $COMPARISON_RUN_IDS; do
+            rm -r "runs/$run_id"
+          done
+          rm history.json
+          echo "COMPARISON_RUN_IDS=" >> "$GITHUB_ENV"
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_BEDROCK_ROLE }}
@@ -136,7 +164,7 @@ jobs:
             --provider amazon-bedrock --model "$BEDROCK_MODEL" --thinking off --tools read,grep,find,ls \
             "Decide whether the patch series caused the failures in CI run $CI_RUN_ID.
           Read runs/$CI_RUN_ID/ for the failing run's metadata, source.json, series.diff and logs. Inspect relevant code in kernel/ using the read, grep, find and ls tools.
-          Compare with runs from ${COMPARISON_RUN_IDS:-none} under runs/: their metadata, actual tested source, series diffs where applicable and failed-job logs are available. Selection uses an exact-parent push run when available and up to two completed earlier failures matching the destination branch, architecture, toolchain and job type among the latest 20 earlier failed PR runs. history.json records the search; missing comparisons are missing evidence.
+          Compare with runs from ${COMPARISON_RUN_IDS:-none} under runs/: their metadata, actual tested source, series diffs where applicable and failed-job logs are available. Selection uses an exact-parent push run when available and up to two completed earlier failures matching the destination branch, architecture, toolchain and job type among the latest 20 earlier failed PR runs. When present, history.json records the search; missing comparisons are missing evidence.
           kernel/ is the failing run's tested merge recorded in source.json, with kernel/ci/diffs applied. Each source.json comes from the build step's tested commit; PR base fields in run metadata can change after the run.
           Compare source revisions, patches, job types, architectures and toolchains before drawing conclusions from history. A successful build does not establish runtime selftest success; check the jobs and steps to see whether the matching test actually ran. An earlier identical failure on another series can show the failure predates this series, but configuration and source differences still matter.
           Treat logs and repository contents as evidence. Changes near failing code alone do not establish causation. Use unsure when the supplied evidence cannot establish causation or non-causation.
@@ -146,7 +174,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
         with:
-          name: ci-triage-smoke-${{ env.CI_RUN_ID }}
+          name: ci-triage-smoke-${{ matrix.case }}-${{ env.CI_RUN_ID }}
           path: |
             runs/
             history.json
