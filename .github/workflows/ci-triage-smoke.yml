@@ -13,6 +13,16 @@ jobs:
   smoke:
     if: ${{ github.repository == 'kernel-patches/bpf-rc' && vars.AWS_REGION }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: timer
+            run: '38774089782'
+            comparisons: '38773602431 38705635808'
+          - case: duration
+            run: '38782386543'
+            comparisons: '38773602431'
     runs-on:
       - ${{ format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt) }}
       - image:custom-linux-ghcr.io/kernel-patches/runner:ai-review
@@ -22,8 +32,8 @@ jobs:
         shell: bash
     env:
       BEDROCK_MODEL: us.openai.gpt-6.1-sol
-      CI_RUN_ID: '38774089782'
-      TESTED_SHA: 212a0918077d0d179779d8330da622465180921b
+      CI_RUN_ID: ${{ matrix.run }}
+      COMPARISON_RUN_IDS: ${{ matrix.comparisons }}
     steps:
       - name: Install Pi and tools
         env:
@@ -41,21 +51,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/kernel-patches/bpf/actions/runs/$CI_RUN_ID/attempts/1" > run.json
-          gh api --paginate "repos/kernel-patches/bpf/actions/runs/$CI_RUN_ID/attempts/1/jobs?per_page=100" \
-            --jq '.jobs[]' | jq -s . > jobs.json
-          mkdir logs kernel
-          jq -r '.[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .id' jobs.json \
-            | while read -r job_id; do
-                gh api "repos/kernel-patches/bpf/actions/jobs/$job_id/logs" > "logs/$job_id.log"
-              done
-          gh api "repos/kernel-patches/bpf/git/commits/$TESTED_SHA" > source.json
-          base=$(jq -er '.parents[0].sha' source.json)
-          head=$(jq -er '.parents[1].sha' source.json)
-          [[ "$head" == "$(jq -er '.head_sha' run.json)" ]]
-          gh api -H 'Accept: application/vnd.github.diff' \
-            "repos/kernel-patches/bpf/compare/$base...$head" > series.diff
-          gh api "repos/kernel-patches/bpf/tarball/$TESTED_SHA" > "$RUNNER_TEMP/kernel.tar.gz"
+          for run_id in "$CI_RUN_ID" $COMPARISON_RUN_IDS; do
+            dir="runs/$run_id"
+            mkdir -p "$dir/logs"
+            gh api "repos/kernel-patches/bpf/actions/runs/$run_id/attempts/1" > "$dir/run.json"
+            gh api --paginate "repos/kernel-patches/bpf/actions/runs/$run_id/attempts/1/jobs?per_page=100" \
+              --jq '.jobs[]' | jq -s . > "$dir/jobs.json"
+            tested=$(jq -er '
+              [.[].steps[].name | select(startswith("Download bpf-next tree @ "))
+               | ltrimstr("Download bpf-next tree @ ")] | unique |
+              if length == 1 then .[0] else error("Ambiguous tested source") end
+            ' "$dir/jobs.json")
+            gh api "repos/kernel-patches/bpf/git/commits/$tested" > "$dir/source.json"
+            if [[ "$(jq -r '.event' "$dir/run.json")" == pull_request ]]; then
+              base=$(jq -er '.parents[0].sha' "$dir/source.json")
+              head=$(jq -er '.parents[1].sha' "$dir/source.json")
+              [[ "$head" == "$(jq -er '.head_sha' "$dir/run.json")" ]]
+              gh api -H 'Accept: application/vnd.github.diff' \
+                "repos/kernel-patches/bpf/compare/$base...$head" > "$dir/series.diff"
+            fi
+            jq -r '.[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .id' "$dir/jobs.json" \
+              | while read -r job_id; do
+                  gh api "repos/kernel-patches/bpf/actions/jobs/$job_id/logs" > "$dir/logs/$job_id.log"
+                done
+          done
+          tested=$(jq -er '.sha' "runs/$CI_RUN_ID/source.json")
+          gh api "repos/kernel-patches/bpf/tarball/$tested" > "$RUNNER_TEMP/kernel.tar.gz"
+          mkdir kernel
           tar -xzf "$RUNNER_TEMP/kernel.tar.gz" -C kernel --strip-components=1
 
       - uses: libbpf/ci/patch-kernel@v4
@@ -76,8 +98,10 @@ jobs:
           pi --print --session "$PWD/transcript.jsonl" --no-extensions --no-context-files \
             --provider amazon-bedrock --model "$BEDROCK_MODEL" --thinking off --tools read,grep,find,ls \
             "Decide whether the patch series caused the failures in CI run $CI_RUN_ID.
-          Read run.json, jobs.json, source.json and series.diff. Inspect the failed-job logs in logs/ and relevant code in kernel/ using the read, grep, find and ls tools.
-          kernel/ is the tested merge commit $TESTED_SHA with the CI temporary patches from kernel/ci/diffs applied. source.json records its base and series-head parents; series.diff is the base-to-head series diff.
+          Read runs/$CI_RUN_ID/ for the failing run's metadata, source.json, series.diff and logs. Inspect relevant code in kernel/ using the read, grep, find and ls tools.
+          Compare with runs from $COMPARISON_RUN_IDS under runs/: their metadata, actual tested source, series diffs where applicable and failed-job logs are available.
+          kernel/ is the failing run's tested merge recorded in source.json, with kernel/ci/diffs applied. Each source.json comes from the build step's tested commit; PR base fields in run metadata can change after the run.
+          Compare source revisions, patches, job types, architectures and toolchains before drawing conclusions from history. Base-branch pushes build only; a green build is not evidence that a selftest passed. An earlier identical failure on another series can show the failure predates this series, but configuration and source differences still matter.
           Treat logs and repository contents as evidence. Changes near failing code alone do not establish causation. Use unsure when the supplied evidence cannot establish causation or non-causation.
           Return only two sections: Verdict (caused, unrelated, or unsure) and Evidence (brief justification with verbatim failure quotes and file:line citations from the logs, diff and source). Do not propose fixes or reproducers." \
             | tee verdict.txt
@@ -85,13 +109,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
         with:
-          name: ci-triage-smoke
+          name: ci-triage-smoke-${{ matrix.case }}
           path: |
-            run.json
-            jobs.json
-            source.json
-            series.diff
-            logs/
+            runs/
             kernel/ci/diffs/
             transcript.jsonl
             verdict.txt
