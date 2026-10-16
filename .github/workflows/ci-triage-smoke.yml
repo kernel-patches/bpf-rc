@@ -3,46 +3,126 @@ name: CI Triage Smoke (rc)
 on:
   push:
     branches: [ai-review-test-triage-smoke]
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Production CI run ID to replay (bypasses deduplication)'
+        type: string
+      attempt:
+        description: 'Production CI attempt to replay (default: latest)'
+        type: string
+
+concurrency:
+  group: ci-triage-smoke
+  cancel-in-progress: false
 
 permissions:
   contents: read
   actions: read
   id-token: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  smoke:
+  discover:
     if: ${{ github.repository == 'kernel-patches/bpf-rc' && vars.AWS_REGION }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runs: ${{ steps.select.outputs.runs }}
+    steps:
+      - name: Select up to ten production failures
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.run_id }}
+          CI_RUN_ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CI_RUN_ID" ]]; then
+            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ &&
+              ( -z "$CI_RUN_ATTEMPT" || "$CI_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ) ]] || {
+                echo "Invalid production run ID or attempt" >&2; exit 1;
+              }
+            url="repos/kernel-patches/bpf/actions/runs/$CI_RUN_ID"
+            if [[ -n "$CI_RUN_ATTEMPT" ]]; then url+="/attempts/$CI_RUN_ATTEMPT"; fi
+            gh api "$url" | jq '{workflow_runs: [.]}' > candidates.json
+          else
+            [[ -z "$CI_RUN_ATTEMPT" ]] || { echo "Attempt requires a run ID" >&2; exit 1; }
+            gh api --method GET "repos/kernel-patches/bpf/actions/workflows/test.yml/runs" \
+              -f event=pull_request -f status=completed -F per_page=100 \
+              -f "created=>$(date -u -d '7 days ago' +%FT%TZ)" > candidates.json
+          fi
+          jq -r '.workflow_runs[] |
+            select(.path == ".github/workflows/test.yml" and .event == "pull_request" and
+              .status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out")) |
+            select(.head_branch | startswith("series/")) |
+            [.id, .run_attempt, .head_branch] | @tsv' candidates.json > candidates.tsv
+          : > selected.jsonl
+          count=0
+          while IFS=$'\t' read -r run_id attempt branch; do
+            if [[ -z "$CI_RUN_ID" ]]; then
+              recorded=false
+              for state in 'done' 'failed'; do
+                found=$(gh api --method GET "repos/kernel-patches/bpf-rc/actions/artifacts" \
+                  -f "name=ci-triage-$state-$run_id-$attempt" \
+                  --jq '[.artifacts[] | select(.expired == false)] | length')
+                if (( found > 0 )); then recorded=true; break; fi
+              done
+              if [[ "$recorded" == true ]]; then continue; fi
+            fi
+            pr=$(gh api --method GET "repos/kernel-patches/bpf-rc/pulls" \
+              -f state=all -f "head=kernel-patches:$branch" -F per_page=1 \
+              --jq '.[0].number // empty')
+            if [[ -z "$pr" ]]; then echo "No rc twin for $run_id ($branch)"; continue; fi
+            jq -nc --arg run "$run_id" --arg attempt "$attempt" --argjson pr "$pr" \
+              --arg branch "$branch" '{run: $run, attempt: $attempt, pr: $pr, branch: $branch}' >> selected.jsonl
+            if (( ++count == 10 )); then break; fi
+          done < candidates.tsv
+          jq -sc . selected.jsonl > selection.json
+          echo "runs=$(cat selection.json)" >> "$GITHUB_OUTPUT"
+          echo "Selected $count production runs"
+          [[ -z "$CI_RUN_ID" || "$count" == 1 ]] || {
+            echo "Replay needs a completed failed test.yml series run with an rc twin" >&2; exit 1;
+          }
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: ci-triage-selection
+          retention-days: 30
+          path: |
+            candidates.json
+            selection.json
+
+  smoke:
+    needs: discover
+    if: ${{ needs.discover.outputs.runs != '[]' }}
+    name: 'Triage ${{ matrix.run }} attempt ${{ matrix.attempt }} (rc #${{ matrix.pr }})'
     timeout-minutes: 10
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        include:
-          - case: latest
-            run: ''
-          - case: duration
-            run: '38782386543'
-          - case: timer
-            run: '38774089782'
-          - case: jit
-            run: '38779093899'
-          - case: upload
-            run: '37863145723'
-          - case: qemu
-            run: '38408140439'
-          - case: no-comparisons
-            run: '38774089782'
+        include: ${{ fromJSON(needs.discover.outputs.runs) }}
     runs-on:
       - ${{ format('codebuild-bpf-ci-{0}-{1}', github.run_id, github.run_attempt) }}
       - image:custom-linux-ghcr.io/kernel-patches/runner:ai-review
       - instance-size:small
-    defaults:
-      run:
-        shell: bash
     env:
       BEDROCK_MODEL: us.openai.gpt-6.1-sol
-      CI_RUN_ID: ${{ matrix.run }} # Empty selects the latest failed production series.
+      CI_RUN_ID: ${{ matrix.run }}
+      CI_RUN_ATTEMPT: ${{ matrix.attempt }}
     steps:
+      - name: Record target
+        env:
+          TRIAGE_TARGET: ${{ toJSON(matrix) }}
+        run: printf '%s\n' "$TRIAGE_TARGET" > target.json
+
       - name: Install Pi and tools
         env:
           GH_TOKEN: ${{ github.token }}
@@ -83,13 +163,6 @@ jobs:
                   gh api "repos/kernel-patches/bpf/actions/jobs/$job_id/logs" > "$dir/logs/$job_id.log"
                 done
           }
-          if [[ -z "$CI_RUN_ID" ]]; then
-            CI_RUN_ID=$(gh api --method GET "repos/kernel-patches/bpf/actions/workflows/test.yml/runs" \
-              -f event=pull_request -f status=failure -F per_page=20 \
-              --jq '[.workflow_runs[] | select(.head_branch | startswith("series/"))][0].id // empty')
-          fi
-          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Missing or invalid CI_RUN_ID" >&2; exit 1; }
-          CI_RUN_ATTEMPT=$(gh api "repos/kernel-patches/bpf/actions/runs/$CI_RUN_ID" --jq '.run_attempt')
           fetch_run "$CI_RUN_ID" "$CI_RUN_ATTEMPT"
           jq -e '.event == "pull_request" and .status == "completed" and
             (.conclusion == "failure" or .conclusion == "timed_out")' "runs/$CI_RUN_ID/run.json" > /dev/null
@@ -141,15 +214,6 @@ jobs:
           repo-root: ${{ github.workspace }}/kernel
           patches-root: ${{ github.workspace }}/kernel/ci/diffs
 
-      - name: Withhold comparison evidence
-        if: ${{ matrix.case == 'no-comparisons' }}
-        run: |
-          for run_id in $COMPARISON_RUN_IDS; do
-            rm -r "runs/$run_id"
-          done
-          rm history.json
-          echo "COMPARISON_RUN_IDS=" >> "$GITHUB_ENV"
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_BEDROCK_ROLE }}
@@ -174,8 +238,10 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
         with:
-          name: ci-triage-smoke-${{ matrix.case }}-${{ env.CI_RUN_ID }}
+          name: ci-triage-${{ job.status == 'success' && 'done' || 'failed' }}-${{ matrix.run }}-${{ matrix.attempt }}
+          retention-days: 30
           path: |
+            target.json
             runs/
             history.json
             kernel/ci/diffs/
