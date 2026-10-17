@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import requests
 from github import Auth, Github
 
 
@@ -128,6 +129,15 @@ def fetch_jobs(run):
     return jobs
 
 
+def download_file(url, path):
+    # Signed download URLs need no GitHub credentials.
+    with requests.get(url, stream=True, timeout=60) as response:
+        response.raise_for_status()
+        with Path(path).open("wb") as output:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                output.write(chunk)
+
+
 def fetch_run(production, run, jobs=None):
     directory = Path("runs") / str(run.id)
     (directory / "logs").mkdir(parents=True)
@@ -160,9 +170,11 @@ def fetch_run(production, run, jobs=None):
 
     for job in jobs:
         if job["conclusion"] in FAILURES:
-            production.requester.getFile(
-                f"{production.url}/actions/jobs/{job['id']}/logs",
-                str(directory / "logs" / f"{job['id']}.log"),
+            headers, _ = production.requester.requestJsonAndCheck(
+                "GET", f"{production.url}/actions/jobs/{job['id']}/logs"
+            )
+            download_file(
+                headers["location"], directory / "logs" / f"{job['id']}.log"
             )
     return source, jobs
 
@@ -212,9 +224,7 @@ def collect(production, run_id, attempt):
         if count == 2:
             break
 
-    production.requester.getFile(
-        f"{production.url}/tarball/{source.sha}", "kernel.tar.gz", chunk_size=1024 * 1024
-    )
+    download_file(production.get_archive_link("tarball", source.sha), "kernel.tar.gz")
     comparison_ids = " ".join(comparisons) or "none"
     Path("prompt.txt").write_text(
         PROMPT.format(run_id=run_id, comparisons=comparison_ids), encoding="utf-8"
