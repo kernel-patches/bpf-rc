@@ -166,7 +166,8 @@ def fetch_run(production, run, jobs=None):
             f"{production.url}/compare/{base.sha}...{head.sha}",
             headers={"Accept": "application/vnd.github.diff"},
         )
-        (directory / "series.diff").write_text(diff["data"], encoding="utf-8")
+        # The SDK returns None for an empty successful response.
+        (directory / "series.diff").write_text("" if diff is None else diff["data"], encoding="utf-8")
 
     for job in jobs:
         if job["conclusion"] in FAILURES:
