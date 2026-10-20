@@ -143,6 +143,9 @@ jobs:
         env:
           PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
         run: |
+          stop_commands=$(cat /proc/sys/kernel/random/uuid)
+          echo "::stop-commands::$stop_commands"
+          trap 'echo "::$stop_commands::"' EXIT
           pi --print --session "$PWD/transcript.jsonl" --no-extensions --no-context-files \
             --provider amazon-bedrock --model "$BEDROCK_MODEL" --thinking off --tools read,grep,find,ls \
             < prompt.txt | tee verdict.txt
