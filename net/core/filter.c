@@ -2906,8 +2906,29 @@ BPF_CALL_4(bpf_msg_push_data, struct sk_msg *, msg, u32, start,
 	 * offset case because its the common case for inserting a
 	 * header.
 	 */
-	if (!space || (space == 1 && start != offset))
-		copy = msg->sg.data[i].length;
+	if (!space || (space == 1 && start != offset)) {
+		/* A push at msg->size leaves the walk on the ring's free
+		 * slot, which is not a live element: its length reads 0
+		 * (or stale data left by an earlier ring rotation), so
+		 * the copy fallback would absorb nothing and the split
+		 * path below would run. With the ring already full
+		 * (space == 0) that path advances sg.end onto sg.start,
+		 * leaving all NR_MSG_FRAG_IDS slots live -- the ring can
+		 * no longer tell "full" from "empty" and later
+		 * transforms corrupt state. Absorb into the last live
+		 * element instead, or fail if there is nothing to absorb.
+		 */
+		if (i == msg->sg.end) {
+			if (!space) {
+				sk_msg_iter_var_prev(i);
+				copy = msg->sg.data[i].length;
+				if (!copy)
+					return -ENOSPC;
+			}
+		} else {
+			copy = msg->sg.data[i].length;
+		}
+	}
 
 	if (unlikely(copy + len < copy))
 		return -EINVAL;
