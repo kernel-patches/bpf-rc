@@ -21046,13 +21046,16 @@ static int check_held_in_leftover(struct bpf_verifier_env *env,
  *	for (i = 0; i < 100000; i++) { if (rnd() && n < 8) n++; }
  * Two trips show a step also for 'sum += i', and more than 2^32 trips also for a ring index.
  * If the steps are not constant, the skip or "infinite" is a guess.
+ * If the bound moved, the skip is a guess.
  * Returns 1 if it skipped these trips.
  */
 static int fast_forward_trips(struct bpf_verifier_env *env, struct loop_stack_entry *entry)
 {
 	struct bpf_verifier_state *cur = env->cur_state, *old = &entry->header_state->st;
-	u32 period = entry->trip - bpf_top_loop(old->frame[old->curframe])->trip;
+	const struct loop_stack_entry *saved = bpf_top_loop(old->frame[old->curframe]);
+	u32 period = entry->trip - saved->trip;
 	bool infinite = entry->trips_left > BPF_MAX_TRIPS, guess;
+	u64 factor = div_u64(entry->trips_left - 1, period);
 	DECLARE_BITMAP(iv_xregs, MAX_BPF_XREG) = {};
 	int err;
 
@@ -21064,14 +21067,15 @@ static int fast_forward_trips(struct bpf_verifier_env *env, struct loop_stack_en
 	err = bpf_jumps_see_same(env, old, cur, entry->iv_jump_idx, infinite ? NULL : iv_xregs);
 	if (err <= 0)
 		return err;
-	guess = !bpf_steps_are_constant(env, entry, iv_xregs, infinite);
+	guess = (!infinite && saved->exit_threshold != entry->exit_threshold) ||
+		!bpf_steps_are_constant(env, entry, iv_xregs, infinite, factor);
 	if (infinite) {
 		entry->loop->infinite = true;
 		entry->loop->infinite_is_guess = guess || env->run_has_guess;
 		return 0;
 	}
 	env->run_has_guess |= guess;
-	bpf_fast_forward_xregs(env, old, cur, div_u64(entry->trips_left - 1, period), iv_xregs);
+	bpf_fast_forward_xregs(env, old, cur, factor, iv_xregs);
 	entry->iv_jump_idx = 0;
 	entry->trips_left = 1;
 	return 1;
@@ -21966,10 +21970,13 @@ static int do_check(struct bpf_verifier_env *env)
 		err = do_check_block(env, prev_insn_idx);
 		if (env->bug)
 			return -EFAULT;
-		/* a pass had no error at this insn, possibly with a state that has more values */
+		/*
+		 * A pass had no error at this insn, possibly with a state that has more values.
+		 * -E2BIG: a pass possibly does not have these calls in frames.
+		 */
 		if (err && env->path_sensitive && is_error_of_state(env, err) &&
 		    (env->cur_state->infeasible || env->cur_state->equations.infeasible ||
-		     !bpf_failing_path_may_end_at(env, env->insn_idx))) {
+		     err == -E2BIG || !bpf_failing_path_may_end_at(env, env->insn_idx))) {
 			bpf_free_verifier_state(env, env->cur_state, false);
 			memset(env->cur_state, 0, sizeof(*env->cur_state));
 			free_pushed_states(env);
@@ -23678,8 +23685,13 @@ static int do_check_all(struct bpf_verifier_env *env)
 			err = ret;
 			break;
 		}
-		if (bpf_undo_precision(env))
+		more = bpf_undo_precision(env);
+		if (more > 0)
 			continue;
+		if (more == -ENOMEM && !good_pass) {
+			err = more;
+			break;
+		}
 		if (ret && good_pass) {
 			restore_snapshot(env, good_pass);
 			err = 0;
